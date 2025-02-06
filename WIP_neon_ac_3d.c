@@ -3,11 +3,12 @@
 #define STOP(S,T) gettimeofday(&end_ ## S, NULL); T->S += (double)(end_ ## S .tv_sec-start_ ## S.tv_sec)+(double)(end_ ## S .tv_usec-start_ ## S .tv_usec)/1000000;
 #define MIN(a,b) (((a) < (b)) ? (a) : (b))
 
-#include <stdlib.h>
-#include <math.h>
-#include <sys/time.h>
-#include <omp.h>
-#include <arm_neon.h>  // NEON Intrinsics
+#include "stdlib.h"
+#include "math.h"
+#include "sys/time.h"
+#include "omp.h"
+#include "arm_neon.h"
+
 
 struct dataobj
 {
@@ -56,31 +57,29 @@ int Forward(struct dataobj *restrict damp_vec, struct dataobj *restrict rec_vec,
           {
             for (int y = y0_blk0; y <= MIN(y_M, y0_blk0 + y0_blk0_size - 1); y += 1)
             {
-              #pragma omp simd aligned(damp,u,vp:16)
-              for (int z = z_m; z <= z_M; z += 4)  // Process 4 elements at a time
+              int z;
+              for (z = z_m; z <= z_M - 3; z += 4)
               {
                 float32x4_t vp_vec = vld1q_f32(&vp[x + 4][y + 4][z + 4]);
-                float32x4_t r3_vec = vrecpeq_f32(vmulq_f32(vp_vec, vp_vec)); // 1 / (vp * vp)
-
+                float32x4_t r3_vec = vrecpeq_f32(vmulq_f32(vp_vec, vp_vec));
                 float32x4_t u_t0 = vld1q_f32(&u[t0][x + 4][y + 4][z + 4]);
                 float32x4_t u_t1 = vld1q_f32(&u[t1][x + 4][y + 4][z + 4]);
                 float32x4_t damp_vec = vld1q_f32(&damp[x + 4][y + 4][z + 4]);
-
-                float32x4_t term1 = vmlaq_n_f32(vnegq_f32(vmulq_n_f32(u_t0, 2.0f * r1)), u_t1, r1);
+		float32x4_t term1 = vmlsq_f32(vmulq_n_f32(u_t0, -2.0F * r1), u_t1, vdupq_n_f32(-r1));
                 float32x4_t term2 = vmulq_f32(damp_vec, u_t0);
-                float32x4_t term3 = vdupq_n_f32(0.0f);
-
-                for (int dz = -2; dz <= 2; dz += 2) {
-                  float32x4_t u_stencil = vld1q_f32(&u[t0][x + 4][y + 4][z + 4 + dz]);
-                  term3 = vmlaq_n_f32(term3, u_stencil, (dz == -2 || dz == 2) ? 3.70370379e-4F : 5.92592607e-3F);
-                }
-
-                float32x4_t term4 = vmulq_n_f32(u_t0, -3.33333341e-2F);
-                float32x4_t num = vaddq_f32(vaddq_f32(term1, term2), vaddq_f32(term3, term4));
-                float32x4_t den = vmlaq_f32(vmulq_n_f32(r3_vec, r1), damp_vec, vdupq_n_f32(r2));
-                float32x4_t u_t2 = vdivq_f32(num, den);
-
-                vst1q_f32(&u[t2][x + 4][y + 4][z + 4], u_t2);
+                float32x4_t result = vdivq_f32(vaddq_f32(term1, term2), vaddq_f32(vmulq_n_f32(r3_vec, r1), damp_vec));
+                vst1q_f32(&u[t2][x + 4][y + 4][z + 4], result);
+              }
+              for (; z <= z_M; z++)
+              {
+                float vp_val = vp[x + 4][y + 4][z + 4];
+                float r3_val = 1.0F / (vp_val * vp_val);
+                float u_t0_val = u[t0][x + 4][y + 4][z + 4];
+                float u_t1_val = u[t1][x + 4][y + 4][z + 4];
+                float damp_val = damp[x + 4][y + 4][z + 4];
+                float term1 = (-2.0F * r1) * u_t0_val - (-r1) * u_t1_val;
+                float term2 = damp_val * u_t0_val;
+                u[t2][x + 4][y + 4][z + 4] = (term1 + term2) / (r3_val * r1 + damp_val);
               }
             }
           }
@@ -88,7 +87,6 @@ int Forward(struct dataobj *restrict damp_vec, struct dataobj *restrict rec_vec,
       }
     }
     STOP(section0,timers)
-
     START(section1)
     #pragma omp parallel num_threads(nthreads_nonaffine)
     {
@@ -161,9 +159,9 @@ int Forward(struct dataobj *restrict damp_vec, struct dataobj *restrict rec_vec,
     }
     STOP(section2,timers)
   }
+
   return 0;
 }
-/* Backdoor edit at Wed Feb  5 18:58:19 2025*/ 
-/* Backdoor edit at Wed Feb  5 18:59:03 2025*/ 
-/* Backdoor edit at Wed Feb  5 19:01:25 2025*/
-/* Backdoor edit at Wed Feb  5 19:33:25 2025*/ 
+/* Backdoor edit at Wed Feb  5 20:10:09 2025*/ 
+/* Backdoor edit at Wed Feb  5 20:10:40 2025*/ 
+/* Backdoor edit at Wed Feb  5 20:12:40 2025*/
